@@ -35656,6 +35656,7 @@ exports.metric2line = metric2line;
 exports.event2payload = event2payload;
 exports.validateEventIngestResponse = validateEventIngestResponse;
 exports.toGrailUrl = toGrailUrl;
+exports.fromGrailUrl = fromGrailUrl;
 exports.resolveSmartscapeNodes = resolveSmartscapeNodes;
 exports.sendMetrics = sendMetrics;
 exports.sendEvents = sendEvents;
@@ -35799,6 +35800,19 @@ function toGrailUrl(url) {
     }
     return url;
 }
+// The reverse of toGrailUrl(): the classic events/metrics/SDLC ingest APIs
+// are served from the environment domain, not the AppEngine gateway domain.
+// Normalizes `url` back to that domain in case it was configured as the
+// gateway domain instead.
+function fromGrailUrl(url) {
+    if (url.endsWith('.apps.dynatrace.com')) {
+        return url.replace(/\.apps\.dynatrace\.com$/, '.live.dynatrace.com');
+    }
+    if (url.endsWith('.apps.dynatracelabs.com')) {
+        return url.replace(/\.apps\.dynatracelabs\.com$/, '.dynatracelabs.com');
+    }
+    return url;
+}
 async function resolveSmartscapeNodes(url, token, filter) {
     if (!filter.trim()) {
         throw Error(`'nodeSelectorFilter' must not be empty`);
@@ -35848,6 +35862,7 @@ async function resolveSmartscapeNodes(url, token, filter) {
 }
 async function sendMetrics(url, token, metrics, retries = 3) {
     core.info(`Sending ${metrics.length} metric(s)`);
+    const classicUrl = fromGrailUrl(url);
     const lines = [];
     for (const metric of metrics) {
         try {
@@ -35866,7 +35881,7 @@ async function sendMetrics(url, token, metrics, retries = 3) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             const http = getClient(token, 'text/plain');
-            const res = await http.post(`${url}/api/v2/metrics/ingest`, lines.join('\n'));
+            const res = await http.post(`${classicUrl}/api/v2/metrics/ingest`, lines.join('\n'));
             core.info(await res.readBody());
             if (res.message.statusCode !== 202) {
                 core.warning(`HTTP request failed - ${res.message.statusCode}`);
@@ -35900,7 +35915,7 @@ async function sendEvents(url, token, events, retries = 3) {
 async function postEvent(url, token, payload) {
     core.info(JSON.stringify(payload));
     const http = getClient(token, 'application/json');
-    const res = await http.post(`${url}/api/v2/events/ingest`, JSON.stringify(payload));
+    const res = await http.post(`${fromGrailUrl(url)}/api/v2/events/ingest`, JSON.stringify(payload));
     const responseBody = await res.readBody();
     core.info(responseBody);
     if (res.message.statusCode !== 201) {
@@ -36004,7 +36019,7 @@ async function sendSdlcEventsInternal(url, token, sdlcEvents) {
     if (validEvents.length === 0)
         return;
     const http = getClient(token, 'application/json');
-    const res = await http.post(`${url}/platform/ingest/v1/events.sdlc`, JSON.stringify(validEvents));
+    const res = await http.post(`${fromGrailUrl(url)}/platform/ingest/v1/events.sdlc`, JSON.stringify(validEvents));
     const responseBody = await res.readBody();
     if (responseBody)
         core.info(responseBody);

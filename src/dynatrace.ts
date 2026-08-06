@@ -226,6 +226,20 @@ export function toGrailUrl(url: string): string {
   return url
 }
 
+// The reverse of toGrailUrl(): the classic events/metrics/SDLC ingest APIs
+// are served from the environment domain, not the AppEngine gateway domain.
+// Normalizes `url` back to that domain in case it was configured as the
+// gateway domain instead.
+export function fromGrailUrl(url: string): string {
+  if (url.endsWith('.apps.dynatrace.com')) {
+    return url.replace(/\.apps\.dynatrace\.com$/, '.live.dynatrace.com')
+  }
+  if (url.endsWith('.apps.dynatracelabs.com')) {
+    return url.replace(/\.apps\.dynatracelabs\.com$/, '.dynatracelabs.com')
+  }
+  return url
+}
+
 export async function resolveSmartscapeNodes(
   url: string,
   token: string,
@@ -319,6 +333,7 @@ export async function sendMetrics(
 ): Promise<void> {
   core.info(`Sending ${metrics.length} metric(s)`)
 
+  const classicUrl = fromGrailUrl(url)
   const lines: string[] = []
   for (const metric of metrics) {
     try {
@@ -338,7 +353,7 @@ export async function sendMetrics(
     try {
       const http: httpm.HttpClient = getClient(token, 'text/plain')
       const res: httpm.HttpClientResponse = await http.post(
-        `${url}/api/v2/metrics/ingest`,
+        `${classicUrl}/api/v2/metrics/ingest`,
         lines.join('\n')
       )
 
@@ -395,7 +410,7 @@ async function postEvent(
 
   const http: httpm.HttpClient = getClient(token, 'application/json')
   const res: httpm.HttpClientResponse = await http.post(
-    `${url}/api/v2/events/ingest`,
+    `${fromGrailUrl(url)}/api/v2/events/ingest`,
     JSON.stringify(payload)
   )
 
@@ -551,7 +566,7 @@ async function sendSdlcEventsInternal(
 
   const http: httpm.HttpClient = getClient(token, 'application/json')
   const res: httpm.HttpClientResponse = await http.post(
-    `${url}/platform/ingest/v1/events.sdlc`,
+    `${fromGrailUrl(url)}/platform/ingest/v1/events.sdlc`,
     JSON.stringify(validEvents)
   )
 
