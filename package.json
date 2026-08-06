@@ -34,6 +34,7 @@
     "lint": "npx eslint . -c ./.github/linters/.eslintrc.yaml",
     "package": "npx ncc build src/index.ts -o dist --source-map --license licenses.txt",
     "package:watch": "npm run package -- --watch",
+    "smoke-test": "node --env-file-if-exists=.env.smoke-test scripts/smoke-test.mts",
     "test": "npx jest",
     "all": "npm run format:write && npm run lint && npm run test && npm run coverage && npm run package"
   },

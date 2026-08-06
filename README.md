@@ -33,6 +33,7 @@ This repository was bootstrapped using the
     - [Sending an Event to Smartscape 2 Nodes](#sending-an-event-to-smartscape-2-nodes)
     - [Sending an SDLC Event](#sending-an-sdlc-event)
   - [Local Development](#local-development)
+    - [Smoke Testing Against a Real Tenant](#smoke-testing-against-a-real-tenant)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -257,6 +258,37 @@ Lint, test and build the TypeScript and package it for distribution
 ```bash
 npm run all
 ```
+
+### Smoke Testing Against a Real Tenant
+
+`npm test` only runs against mocked HTTP calls. To verify behavior against a
+real Dynatrace tenant (e.g. after changing anything in `src/dynatrace.ts`), run
+the local-only smoke test script. It is **never run in CI** and never touches
+GitHub Secrets — it reads tenant URLs/tokens from your local environment only.
+
+Create an untracked `.env.smoke-test` file (already gitignored) in the repo
+root:
+
+```bash
+DT_CLASSIC_URL=https://{classic-environment-id}.live.dynatrace.com
+DT_CLASSIC_TOKEN=dt0c01.xxxxx
+DT_PHASE3_URL=https://{phase3-environment-id}.live.dynatrace.com
+DT_PHASE3_TOKEN=dt0c01.xxxxx
+# Optional overrides:
+# DT_CLASSIC_ENTITY_SELECTOR=type(HOST)
+# DT_PHASE3_NODE_FILTER=type=="HOST"
+```
+
+Then run:
+
+```bash
+npm run smoke-test
+```
+
+This sends real events/metrics to both tenants and prints the result of each
+scenario (classic `entitySelector`, Phase 3 `entitySelector`,
+`nodeSelectorFilter` with and without matches) so you can cross-check them in
+the Dynatrace UI.
 
 ## Contributing
 
