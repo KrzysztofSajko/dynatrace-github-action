@@ -20,6 +20,7 @@ async function main(): Promise<void> {
   const url = requireEnv('DT_CLASSIC_URL')
   const token = requireEnv('DT_CLASSIC_TOKEN')
   const entitySelector = process.env.DT_ENTITY_SELECTOR ?? 'type(HOST)'
+  const nodeFilter = process.env.DT_CLASSIC_NODE_FILTER ?? 'type=="HOST"'
 
   await scenario('classic tenant: entitySelector', async () =>
     dt.sendEvents(url, token, [
@@ -34,6 +35,20 @@ async function main(): Promise<void> {
 
   await scenario('classic tenant: metric', async () =>
     dt.sendMetrics(url, token, [{ metric: 'github.smoke_test', value: '1.0' }])
+  )
+
+  // The Grail Query API isn't gated by Smartscape 2 / Phase 3 migration
+  // status - it should also work on a classic tenant, given the token has
+  // the storage:buckets:read/storage:smartscape:read scopes.
+  await scenario('classic tenant: nodeSelectorFilter', async () =>
+    dt.sendEvents(url, token, [
+      {
+        title: 'Smoke test: nodeSelectorFilter on classic tenant',
+        type: 'CUSTOM_INFO',
+        nodeSelectorFilter: nodeFilter,
+        properties: { source: 'smoke-test' }
+      }
+    ])
   )
 
   console.log('\nDone. Cross-check the event/metric in the classic tenant.')

@@ -35655,6 +35655,7 @@ exports.safeValue = safeValue;
 exports.metric2line = metric2line;
 exports.event2payload = event2payload;
 exports.validateEventIngestResponse = validateEventIngestResponse;
+exports.toGrailUrl = toGrailUrl;
 exports.resolveSmartscapeNodes = resolveSmartscapeNodes;
 exports.sendMetrics = sendMetrics;
 exports.sendEvents = sendEvents;
@@ -35784,17 +35785,36 @@ function recordsToSmartscapeNodes(records) {
     }
     return nodes;
 }
+// The Grail Query API is served from the AppEngine gateway domain, not the
+// classic environment domain used for the events/metrics ingest APIs.
+// Covers both the public SaaS domain and Dynatrace's internal pre-release
+// (dev/hardening) domains, which use a different naming convention.
+function toGrailUrl(url) {
+    if (url.endsWith('.live.dynatrace.com')) {
+        return url.replace(/\.live\.dynatrace\.com$/, '.apps.dynatrace.com');
+    }
+    if (url.endsWith('.dynatracelabs.com') &&
+        !url.endsWith('.apps.dynatracelabs.com')) {
+        return url.replace(/\.dynatracelabs\.com$/, '.apps.dynatracelabs.com');
+    }
+    return url;
+}
 async function resolveSmartscapeNodes(url, token, filter) {
     if (!filter.trim()) {
         throw Error(`'nodeSelectorFilter' must not be empty`);
     }
+    const grailUrl = toGrailUrl(url);
     const query = `smartscapeNodes "*" | filter ${filter}`;
     const http = getClient(token, 'application/json');
-    const startRes = await http.post(`${url}/platform/storage/query/v1/query:execute`, JSON.stringify({
+    const startUrl = `${grailUrl}/platform/storage/query/v1/query:execute`;
+    const startPayload = JSON.stringify({
         query,
         requestTimeoutMilliseconds: QUERY_POLL_TIMEOUT_MS
-    }));
+    });
+    core.debug(`Grail query request: POST ${startUrl} body=${startPayload}`);
+    const startRes = await http.post(startUrl, startPayload);
     const startBody = await startRes.readBody();
+    core.debug(`Grail query response: ${startRes.message.statusCode} body=${startBody}`);
     if (startRes.message.statusCode !== 200) {
         throw Error(`Dynatrace Grail query request failed - ${startRes.message.statusCode}: ${startBody}`);
     }
@@ -35807,8 +35827,11 @@ async function resolveSmartscapeNodes(url, token, filter) {
             throw Error(`Dynatrace Grail query did not return a request token to poll for results`);
         }
         await new Promise(resolve => setTimeout(resolve, QUERY_POLL_INTERVAL_MS));
-        const pollRes = await http.get(`${url}/platform/storage/query/v1/query:poll?request-token=${encodeURIComponent(queryResponse.requestToken)}`);
+        const pollUrl = `${grailUrl}/platform/storage/query/v1/query:poll?request-token=${encodeURIComponent(queryResponse.requestToken)}`;
+        core.debug(`Grail query poll request: GET ${pollUrl}`);
+        const pollRes = await http.get(pollUrl);
         const pollBody = await pollRes.readBody();
+        core.debug(`Grail query poll response: ${pollRes.message.statusCode} body=${pollBody}`);
         if (pollRes.message.statusCode !== 200) {
             throw Error(`Dynatrace Grail query poll failed - ${pollRes.message.statusCode}: ${pollBody}`);
         }
@@ -35881,7 +35904,7 @@ async function postEvent(url, token, payload) {
     const responseBody = await res.readBody();
     core.info(responseBody);
     if (res.message.statusCode !== 201) {
-        throw Error(`HTTP request failed - ${res.message.statusCode}`);
+        throw Error(`HTTP request failed - ${res.message.statusCode}: ${responseBody}`);
     }
     validateEventIngestResponse(responseBody);
 }

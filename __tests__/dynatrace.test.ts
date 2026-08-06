@@ -326,6 +326,32 @@ describe('dynatrace', () => {
     })
   })
 
+  describe('toGrailUrl', () => {
+    it('rewrites the public SaaS live domain to the apps domain', () => {
+      expect(dt.toGrailUrl('https://abc12345.live.dynatrace.com')).toEqual(
+        'https://abc12345.apps.dynatrace.com'
+      )
+    })
+
+    it('inserts the apps segment for internal dynatracelabs domains', () => {
+      expect(dt.toGrailUrl('https://abc12345.dev.dynatracelabs.com')).toEqual(
+        'https://abc12345.dev.apps.dynatracelabs.com'
+      )
+    })
+
+    it('leaves an already-correct apps domain unchanged', () => {
+      expect(
+        dt.toGrailUrl('https://abc12345.dev.apps.dynatracelabs.com')
+      ).toEqual('https://abc12345.dev.apps.dynatracelabs.com')
+    })
+
+    it('leaves unrecognized domains unchanged', () => {
+      expect(dt.toGrailUrl('https://dynatrace.example.com')).toEqual(
+        'https://dynatrace.example.com'
+      )
+    })
+  })
+
   describe('resolveSmartscapeNodes', () => {
     const mockPost = jest.fn()
     const mockGet = jest.fn()

@@ -29,3 +29,37 @@ export async function scenario(
     process.exitCode = 1
   }
 }
+
+// For scenarios where the *correct* outcome is Dynatrace rejecting the
+// request - passes only if it fails with a message containing `expected`.
+export async function expectFailure(
+  name: string,
+  expected: string,
+  run: () => Promise<void>
+): Promise<void> {
+  console.log(`\n=== ${name} ===`)
+  // sendEvents() calls core.setFailed() internally before re-throwing, which
+  // sets process.exitCode = 1 as a side effect even when we go on to treat
+  // the rejection as the expected/correct outcome below - remember the prior
+  // value so we can undo that side effect in the expected case.
+  const previousExitCode = process.exitCode
+  try {
+    await run()
+    console.error(
+      `--- FAILED: ${name} (expected it to be rejected, but it succeeded) ---`
+    )
+    process.exitCode = 1
+  } catch (error) {
+    const message = (error as Error).message
+    if (message.includes(expected)) {
+      console.log(`--- OK: ${name} (rejected as expected) ---`)
+      process.exitCode = previousExitCode
+    } else {
+      console.error(
+        `--- FAILED: ${name} (rejected, but not with the expected message) ---`
+      )
+      console.error(error)
+      process.exitCode = 1
+    }
+  }
+}

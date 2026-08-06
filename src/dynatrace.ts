@@ -209,6 +209,23 @@ function recordsToSmartscapeNodes(
   return nodes
 }
 
+// The Grail Query API is served from the AppEngine gateway domain, not the
+// classic environment domain used for the events/metrics ingest APIs.
+// Covers both the public SaaS domain and Dynatrace's internal pre-release
+// (dev/hardening) domains, which use a different naming convention.
+export function toGrailUrl(url: string): string {
+  if (url.endsWith('.live.dynatrace.com')) {
+    return url.replace(/\.live\.dynatrace\.com$/, '.apps.dynatrace.com')
+  }
+  if (
+    url.endsWith('.dynatracelabs.com') &&
+    !url.endsWith('.apps.dynatracelabs.com')
+  ) {
+    return url.replace(/\.dynatracelabs\.com$/, '.apps.dynatracelabs.com')
+  }
+  return url
+}
+
 export async function resolveSmartscapeNodes(
   url: string,
   token: string,
@@ -218,17 +235,25 @@ export async function resolveSmartscapeNodes(
     throw Error(`'nodeSelectorFilter' must not be empty`)
   }
 
+  const grailUrl = toGrailUrl(url)
   const query = `smartscapeNodes "*" | filter ${filter}`
   const http: httpm.HttpClient = getClient(token, 'application/json')
 
+  const startUrl = `${grailUrl}/platform/storage/query/v1/query:execute`
+  const startPayload = JSON.stringify({
+    query,
+    requestTimeoutMilliseconds: QUERY_POLL_TIMEOUT_MS
+  })
+  core.debug(`Grail query request: POST ${startUrl} body=${startPayload}`)
+
   const startRes: httpm.HttpClientResponse = await http.post(
-    `${url}/platform/storage/query/v1/query:execute`,
-    JSON.stringify({
-      query,
-      requestTimeoutMilliseconds: QUERY_POLL_TIMEOUT_MS
-    })
+    startUrl,
+    startPayload
   )
   const startBody = await startRes.readBody()
+  core.debug(
+    `Grail query response: ${startRes.message.statusCode} body=${startBody}`
+  )
   if (startRes.message.statusCode !== 200) {
     throw Error(
       `Dynatrace Grail query request failed - ${startRes.message.statusCode}: ${startBody}`
@@ -251,10 +276,14 @@ export async function resolveSmartscapeNodes(
 
     await new Promise(resolve => setTimeout(resolve, QUERY_POLL_INTERVAL_MS))
 
-    const pollRes: httpm.HttpClientResponse = await http.get(
-      `${url}/platform/storage/query/v1/query:poll?request-token=${encodeURIComponent(queryResponse.requestToken)}`
-    )
+    const pollUrl = `${grailUrl}/platform/storage/query/v1/query:poll?request-token=${encodeURIComponent(queryResponse.requestToken)}`
+    core.debug(`Grail query poll request: GET ${pollUrl}`)
+
+    const pollRes: httpm.HttpClientResponse = await http.get(pollUrl)
     const pollBody = await pollRes.readBody()
+    core.debug(
+      `Grail query poll response: ${pollRes.message.statusCode} body=${pollBody}`
+    )
     if (pollRes.message.statusCode !== 200) {
       throw Error(
         `Dynatrace Grail query poll failed - ${pollRes.message.statusCode}: ${pollBody}`
@@ -374,7 +403,9 @@ async function postEvent(
   core.info(responseBody)
 
   if (res.message.statusCode !== 201) {
-    throw Error(`HTTP request failed - ${res.message.statusCode}`)
+    throw Error(
+      `HTTP request failed - ${res.message.statusCode}: ${responseBody}`
+    )
   }
 
   validateEventIngestResponse(responseBody)

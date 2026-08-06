@@ -14,7 +14,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 // eslint-disable-next-line import/extensions -- required for Node's native TypeScript execution
 import * as dt from '../src/dynatrace.ts'
 // eslint-disable-next-line import/extensions, import/no-unresolved -- required for Node's native TypeScript execution
-import { requireEnv, scenario } from './smoke-lib.mts'
+import { requireEnv, scenario, expectFailure } from './smoke-lib.mts'
 
 async function main(): Promise<void> {
   const url = requireEnv('DT_SMARTSCAPE_URL')
@@ -22,8 +22,12 @@ async function main(): Promise<void> {
   const entitySelector = process.env.DT_ENTITY_SELECTOR ?? 'type(HOST)'
   const nodeFilter = process.env.DT_SMARTSCAPE_NODE_FILTER ?? 'type=="HOST"'
 
-  await scenario(
-    'smartscape tenant: entitySelector (expected to be a no-op / deprecated)',
+  // Dynatrace rejects entitySelector outright on Smartscape 2 / Grail
+  // tenants (400, "no longer supported") - this is the correct, expected
+  // outcome, not a no-op.
+  await expectFailure(
+    'smartscape tenant: entitySelector (expected to be rejected)',
+    'no longer supported',
     async () =>
       dt.sendEvents(url, token, [
         {
