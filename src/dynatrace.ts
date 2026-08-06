@@ -46,7 +46,28 @@ export interface Event {
   startTime?: number
   endTime?: number
   entitySelector?: string
+  nodeSelectorFilter?: string
   properties?: Properties
+}
+
+export interface SmartscapeNode {
+  id: string
+  type: string
+  name?: string
+}
+
+interface QueryResponse {
+  state:
+    | 'NOT_STARTED'
+    | 'RUNNING'
+    | 'SUCCEEDED'
+    | 'RESULT_GONE'
+    | 'CANCELLED'
+    | 'FAILED'
+  requestToken?: string
+  result?: {
+    records: (Record<string, unknown> | null)[]
+  }
 }
 
 interface EventIngestResult {
@@ -58,6 +79,9 @@ interface EventIngestResponse {
   reportCount?: number
   eventIngestResults?: EventIngestResult[]
 }
+
+const QUERY_POLL_INTERVAL_MS = 1000
+const QUERY_POLL_TIMEOUT_MS = 30000
 
 export function safeKey(key: string): string {
   return key.toLowerCase().replace(/[^.0-9a-z_-]/gi, '_')
@@ -153,6 +177,111 @@ export function validateEventIngestResponse(body: string): void {
   }
 }
 
+function parseQueryResponse(body: string): QueryResponse {
+  try {
+    return JSON.parse(body) as QueryResponse
+  } catch (error) {
+    throw Error(
+      `Dynatrace Grail query returned invalid JSON: ${(error as Error).message}`
+    )
+  }
+}
+
+function recordsToSmartscapeNodes(
+  records: (Record<string, unknown> | null)[]
+): SmartscapeNode[] {
+  const nodes: SmartscapeNode[] = []
+
+  for (const record of records) {
+    if (!record) continue
+
+    const { id, type, name } = record
+    if (typeof id !== 'string' || typeof type !== 'string') {
+      core.warning(
+        `Skipping Smartscape node record missing 'id' or 'type': ${JSON.stringify(record)}`
+      )
+      continue
+    }
+
+    nodes.push({ id, type, name: typeof name === 'string' ? name : undefined })
+  }
+
+  return nodes
+}
+
+export async function resolveSmartscapeNodes(
+  url: string,
+  token: string,
+  filter: string
+): Promise<SmartscapeNode[]> {
+  if (!filter.trim()) {
+    throw Error(`'nodeSelectorFilter' must not be empty`)
+  }
+
+  const query = `smartscapeNodes "*" | filter ${filter}`
+  const http: httpm.HttpClient = getClient(token, 'application/json')
+
+  const startRes: httpm.HttpClientResponse = await http.post(
+    `${url}/platform/storage/query/v1/query:execute`,
+    JSON.stringify({
+      query,
+      requestTimeoutMilliseconds: QUERY_POLL_TIMEOUT_MS
+    })
+  )
+  const startBody = await startRes.readBody()
+  if (startRes.message.statusCode !== 200) {
+    throw Error(
+      `Dynatrace Grail query request failed - ${startRes.message.statusCode}: ${startBody}`
+    )
+  }
+
+  let queryResponse = parseQueryResponse(startBody)
+  const deadline = Date.now() + QUERY_POLL_TIMEOUT_MS
+
+  while (
+    (queryResponse.state === 'RUNNING' ||
+      queryResponse.state === 'NOT_STARTED') &&
+    Date.now() < deadline
+  ) {
+    if (!queryResponse.requestToken) {
+      throw Error(
+        `Dynatrace Grail query did not return a request token to poll for results`
+      )
+    }
+
+    await new Promise(resolve => setTimeout(resolve, QUERY_POLL_INTERVAL_MS))
+
+    const pollRes: httpm.HttpClientResponse = await http.get(
+      `${url}/platform/storage/query/v1/query:poll?request-token=${encodeURIComponent(queryResponse.requestToken)}`
+    )
+    const pollBody = await pollRes.readBody()
+    if (pollRes.message.statusCode !== 200) {
+      throw Error(
+        `Dynatrace Grail query poll failed - ${pollRes.message.statusCode}: ${pollBody}`
+      )
+    }
+
+    queryResponse = parseQueryResponse(pollBody)
+  }
+
+  if (
+    queryResponse.state === 'RUNNING' ||
+    queryResponse.state === 'NOT_STARTED'
+  ) {
+    throw Error(
+      `Timed out waiting for Dynatrace Grail query to complete for filter '${filter}'`
+    )
+  }
+
+  if (queryResponse.state !== 'SUCCEEDED') {
+    throw Error(
+      `Dynatrace Grail query did not succeed (state: ${queryResponse.state}) for filter '${filter}'`
+    )
+  }
+
+  return recordsToSmartscapeNodes(queryResponse.result?.records ?? [])
+}
+
 export async function sendMetrics(
   url: string,
   token: string,
@@ -228,6 +357,79 @@ export async function sendEvents(
   }
 }
 
+async function postEvent(
+  url: string,
+  token: string,
+  payload: { [key: string]: number | string | Properties }
+): Promise<void> {
+  core.info(JSON.stringify(payload))
+
+  const http: httpm.HttpClient = getClient(token, 'application/json')
+  const res: httpm.HttpClientResponse = await http.post(
+    `${url}/api/v2/events/ingest`,
+    JSON.stringify(payload)
+  )
+
+  const responseBody = await res.readBody()
+  core.info(responseBody)
+
+  if (res.message.statusCode !== 201) {
+    throw Error(`HTTP request failed - ${res.message.statusCode}`)
+  }
+
+  validateEventIngestResponse(responseBody)
+}
+
+function smartscapeNodeProperties(node: SmartscapeNode): Properties {
+  const type = node.type.toLowerCase()
+  const properties: Properties = {
+    [`dt.smartscape.${type}.id`]: node.id,
+    'dt.smartscape_source.id': node.id,
+    'dt.smartscape_source.type': node.type
+  }
+
+  if (node.name) properties[`dt.smartscape.${type}.name`] = node.name
+
+  return properties
+}
+
+async function sendEventToSmartscapeNodes(
+  url: string,
+  token: string,
+  event: Event
+): Promise<void> {
+  const nodes = await resolveSmartscapeNodes(
+    url,
+    token,
+    event.nodeSelectorFilter as string
+  )
+
+  if (nodes.length === 0) {
+    core.warning(
+      `No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`
+    )
+    return
+  }
+
+  let basePayload: { [key: string]: number | string | Properties }
+  try {
+    basePayload = event2payload({ ...event, entitySelector: undefined })
+  } catch (error) {
+    core.setFailed((error as Error).message)
+    return
+  }
+
+  for (const node of nodes) {
+    await postEvent(url, token, {
+      ...basePayload,
+      properties: {
+        ...smartscapeNodeProperties(node),
+        ...(event.properties ?? {})
+      }
+    })
+  }
+}
+
 async function sendEventsInternal(
   url: string,
   token: string,
@@ -235,30 +437,33 @@ async function sendEventsInternal(
 ): Promise<void> {
   core.info(`Sending ${events.length} event(s)`)
 
-  let payload = {}
   for (const event of events) {
+    if (event.entitySelector) {
+      core.warning(
+        `Event '${event.title}' uses 'entitySelector', which is deprecated for Dynatrace SaaS tenants on Smartscape 2 / Grail (Phase 3). Use 'nodeSelectorFilter' instead.`
+      )
+    }
+
+    if (event.nodeSelectorFilter) {
+      if (event.entitySelector) {
+        core.warning(
+          `Event '${event.title}' sets both 'entitySelector' and 'nodeSelectorFilter' - 'entitySelector' is ignored.`
+        )
+      }
+
+      await sendEventToSmartscapeNodes(url, token, event)
+      continue
+    }
+
+    let payload: { [key: string]: number | string | Properties }
     try {
       payload = event2payload(event)
-      core.info(JSON.stringify(payload))
     } catch (error) {
       core.setFailed((error as Error).message)
       continue
     }
 
-    const http: httpm.HttpClient = getClient(token, 'application/json')
-    const res: httpm.HttpClientResponse = await http.post(
-      `${url}/api/v2/events/ingest`,
-      JSON.stringify(payload)
-    )
-
-    const responseBody = await res.readBody()
-    core.info(responseBody)
-
-    if (res.message.statusCode !== 201) {
-      throw Error(`HTTP request failed - ${res.message.statusCode}`)
-    }
-
-    validateEventIngestResponse(responseBody)
+    await postEvent(url, token, payload)
   }
 }
 

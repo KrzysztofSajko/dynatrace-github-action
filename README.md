@@ -30,6 +30,7 @@ This repository was bootstrapped using the
   - [Examples](#examples)
     - [Sending a Metric](#sending-a-metric)
     - [Sending an Event](#sending-an-event)
+    - [Sending an Event to Smartscape 2 Nodes](#sending-an-event-to-smartscape-2-nodes)
     - [Sending an SDLC Event](#sending-an-sdlc-event)
   - [Local Development](#local-development)
   - [Contributing](#contributing)
@@ -77,6 +78,8 @@ granted to it:
 - Ingest Events (`events.ingest`)
 - Ingest SDLC Events (`openpipeline.events_sdlc`) — required only when using
   `sdlc-events`
+- Read Grail buckets (`storage:buckets:read`) and Smartscape
+  (`storage:smartscape:read`) — required only when using `nodeSelectorFilter`
 
 ### Metric Formats
 
@@ -156,6 +159,13 @@ API for help creating selectors. Below are a few examples:
 - `type(host),tag(prod)` - Selects all Hosts with a Tag `prod`.
 - `type(service),entityName(login)` - Selects all Services with the name `login`
 
+> [!WARNING]
+>
+> `entitySelector` is **deprecated** and does not work on Dynatrace SaaS tenants
+> that have migrated to Smartscape 2 / Grail (Phase 3) — it remains fully
+> functional for tenants that haven't migrated yet. For Smartscape 2 tenants,
+> use [`nodeSelectorFilter`](#sending-an-event-to-smartscape-2-nodes) instead.
+
 ```yaml
 - name: Send events to Dynatrace
   uses: dynatrace-oss/dynatrace-github-action@v9
@@ -166,6 +176,44 @@ API for help creating selectors. Below are a few examples:
       - title: GitHub Event
         type: CUSTOM_INFO
         entitySelector: type(host),entityName(myHost)
+        properties:
+          source: GitHub
+          description: This is an example
+          github.repository: "${{ github.repository }}"
+          github.ref: "${{ github.ref }}"
+          github.event_name: "${{ github.event_name }}"
+          github.actor: "${{ github.actor }}"
+```
+
+### Sending an Event to Smartscape 2 Nodes
+
+On Dynatrace SaaS tenants using Smartscape 2 / Grail, entities are resolved via
+a DQL filter instead of the classic `entitySelector`. Set `nodeSelectorFilter`
+to a
+[DQL `smartscapeNodes` filter expression](https://docs.dynatrace.com/docs/platform/grail/dynatrace-query-language/commands/smartscape-commands)
+and the action will:
+
+1. Query Grail for all Smartscape nodes matching the filter.
+2. Send the event once per matched node, automatically attaching
+   `dt.smartscape.<type>.id`, `dt.smartscape.<type>.name`,
+   `dt.smartscape_source.id` and `dt.smartscape_source.type` properties for that
+   node (in addition to any `properties` you configure).
+
+If a node matches zero entities, the event is skipped for that run and a warning
+is logged — the workflow step is not failed. If both `entitySelector` and
+`nodeSelectorFilter` are set on the same event, `nodeSelectorFilter` takes
+precedence and `entitySelector` is ignored.
+
+```yaml
+- name: Send events to Dynatrace
+  uses: dynatrace-oss/dynatrace-github-action@v9
+  with:
+    url: ${{ secrets.DT_URL }}
+    token: ${{ secrets.DT_TOKEN }}
+    events: |
+      - title: GitHub Event
+        type: CUSTOM_INFO
+        nodeSelectorFilter: 'type=="SERVICE" and name == "astroshop-shipping"'
         properties:
           source: GitHub
           description: This is an example
