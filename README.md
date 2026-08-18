@@ -32,6 +32,7 @@ This repository was bootstrapped using the
     - [Sending an Event](#sending-an-event)
     - [Sending an SDLC Event](#sending-an-sdlc-event)
   - [Local Development](#local-development)
+  - [Support](#support)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -210,10 +211,19 @@ Lint, test and build the TypeScript and package it for distribution
 npm run all
 ```
 
+## Support
+
+This open source project is **community-supported**. It is not officially
+supported by Dynatrace. For questions, bug reports, and feature requests, please
+use [GitHub Issues](https://github.com/dynatrace-oss/dynatrace-github-action/issues).
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at
 <https://github.com/dynatrace-oss/dynatrace-github-action>.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request
+and note that all participants are expected to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
