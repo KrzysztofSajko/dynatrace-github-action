@@ -35710,7 +35710,7 @@ function metric2line(metric) {
             line += ` ${metric.format},${metric.value}`;
         }
         else {
-            throw Error(`Unsupported Metric format for '${metric.metric}' - ${metric.format}`);
+            throw new Error(`Unsupported Metric format for '${metric.metric}' - ${metric.format}`);
         }
     }
     else
@@ -35746,7 +35746,7 @@ function event2payload(event) {
         return payload;
     }
     else {
-        throw Error(`Unsupported Event type for '${event.title}' - ${event.type}`);
+        throw new Error(`Unsupported Event type for '${event.title}' - ${event.type}`);
     }
 }
 function validateEventIngestResponse(body) {
@@ -35755,13 +35755,13 @@ function validateEventIngestResponse(body) {
         parsedResponse = JSON.parse(body);
     }
     catch (error) {
-        throw Error(`Dynatrace event ingest returned invalid JSON: ${error.message}`);
+        throw new Error(`Dynatrace event ingest returned invalid JSON: ${error.message}`);
     }
     const reportCount = parsedResponse.reportCount ?? 0;
     const eventIngestResults = parsedResponse.eventIngestResults ?? [];
     const successfulIngestions = eventIngestResults.filter(result => result.status === 'OK');
     if (reportCount <= 0 || successfulIngestions.length === 0) {
-        throw Error(`Dynatrace event ingest accepted the request but did not ingest any events: ${body}`);
+        throw new Error(`Dynatrace event ingest accepted the request but did not ingest any events: ${body}`);
     }
 }
 function parseQueryResponse(body) {
@@ -35769,7 +35769,7 @@ function parseQueryResponse(body) {
         return JSON.parse(body);
     }
     catch (error) {
-        throw Error(`Dynatrace Grail query returned invalid JSON: ${error.message}`);
+        throw new Error(`Dynatrace Grail query returned invalid JSON: ${error.message}`);
     }
 }
 function recordsToSmartscapeNodes(records) {
@@ -35815,7 +35815,7 @@ function fromGrailUrl(url) {
 }
 async function resolveSmartscapeNodes(url, token, filter) {
     if (!filter.trim()) {
-        throw Error(`'nodeSelectorFilter' must not be empty`);
+        throw new Error(`'nodeSelectorFilter' must not be empty`);
     }
     const grailUrl = toGrailUrl(url);
     const query = `smartscapeNodes "*" | filter ${filter} | fields id, type, name`;
@@ -35830,7 +35830,7 @@ async function resolveSmartscapeNodes(url, token, filter) {
     const startBody = await startRes.readBody();
     core.debug(`Grail query response: ${startRes.message.statusCode} body=${startBody}`);
     if (startRes.message.statusCode !== 200) {
-        throw Error(`Dynatrace Grail query request failed - ${startRes.message.statusCode}: ${startBody}`);
+        throw new Error(`Dynatrace Grail query request failed - ${startRes.message.statusCode}: ${startBody}`);
     }
     let queryResponse = parseQueryResponse(startBody);
     const deadline = Date.now() + QUERY_POLL_TIMEOUT_MS;
@@ -35838,7 +35838,7 @@ async function resolveSmartscapeNodes(url, token, filter) {
         queryResponse.state === 'NOT_STARTED') &&
         Date.now() < deadline) {
         if (!queryResponse.requestToken) {
-            throw Error(`Dynatrace Grail query did not return a request token to poll for results`);
+            throw new Error(`Dynatrace Grail query did not return a request token to poll for results`);
         }
         await new Promise(resolve => setTimeout(resolve, QUERY_POLL_INTERVAL_MS));
         const pollUrl = `${grailUrl}/platform/storage/query/v1/query:poll?request-token=${encodeURIComponent(queryResponse.requestToken)}`;
@@ -35847,16 +35847,16 @@ async function resolveSmartscapeNodes(url, token, filter) {
         const pollBody = await pollRes.readBody();
         core.debug(`Grail query poll response: ${pollRes.message.statusCode} body=${pollBody}`);
         if (pollRes.message.statusCode !== 200) {
-            throw Error(`Dynatrace Grail query poll failed - ${pollRes.message.statusCode}: ${pollBody}`);
+            throw new Error(`Dynatrace Grail query poll failed - ${pollRes.message.statusCode}: ${pollBody}`);
         }
         queryResponse = parseQueryResponse(pollBody);
     }
     if (queryResponse.state === 'RUNNING' ||
         queryResponse.state === 'NOT_STARTED') {
-        throw Error(`Timed out waiting for Dynatrace Grail query to complete for filter '${filter}'`);
+        throw new Error(`Timed out waiting for Dynatrace Grail query to complete for filter '${filter}'`);
     }
     if (queryResponse.state !== 'SUCCEEDED') {
-        throw Error(`Dynatrace Grail query did not succeed (state: ${queryResponse.state}) for filter '${filter}'`);
+        throw new Error(`Dynatrace Grail query did not succeed (state: ${queryResponse.state}) for filter '${filter}'`);
     }
     return recordsToSmartscapeNodes(queryResponse.result?.records ?? []);
 }
@@ -35919,9 +35919,32 @@ async function postEvent(url, token, payload) {
     const responseBody = await res.readBody();
     core.info(responseBody);
     if (res.message.statusCode !== 201) {
-        throw Error(`HTTP request failed - ${res.message.statusCode}: ${responseBody}`);
+        throw new Error(`HTTP request failed - ${res.message.statusCode}: ${responseBody}`);
     }
     validateEventIngestResponse(responseBody);
+}
+async function buildSmartscapePayloads(url, token, event) {
+    const nodes = await resolveSmartscapeNodes(url, token, event.nodeSelectorFilter);
+    if (nodes.length === 0) {
+        core.warning(`No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`);
+        return null;
+    }
+    let basePayload;
+    try {
+        basePayload = event2payload({ ...event, entitySelector: undefined });
+    }
+    catch (error) {
+        core.setFailed(error.message);
+        return null;
+    }
+    return nodes.map(node => ({
+        ...basePayload,
+        properties: {
+            ...event.properties,
+            'dt.smartscape_source.id': node.id,
+            'dt.smartscape_source.type': node.type
+        }
+    }));
 }
 async function sendEventsInternal(url, token, events) {
     core.info(`Sending ${events.length} event(s)`);
@@ -35934,27 +35957,10 @@ async function sendEventsInternal(url, token, events) {
             if (event.entitySelector) {
                 core.warning(`Event '${event.title}' sets both 'entitySelector' and 'nodeSelectorFilter' - 'entitySelector' is ignored.`);
             }
-            const nodes = await resolveSmartscapeNodes(url, token, event.nodeSelectorFilter);
-            if (nodes.length === 0) {
-                core.warning(`No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`);
+            const result = await buildSmartscapePayloads(url, token, event);
+            if (result === null)
                 continue;
-            }
-            let basePayload;
-            try {
-                basePayload = event2payload({ ...event, entitySelector: undefined });
-            }
-            catch (error) {
-                core.setFailed(error.message);
-                continue;
-            }
-            payloads = nodes.map(node => ({
-                ...basePayload,
-                properties: {
-                    ...(event.properties ?? {}),
-                    'dt.smartscape_source.id': node.id,
-                    'dt.smartscape_source.type': node.type
-                }
-            }));
+            payloads = result;
         }
         else {
             try {
@@ -35973,7 +35979,7 @@ async function sendEventsInternal(url, token, events) {
 function validateSdlcEvent(event) {
     const id = event['event.id'];
     if (id === undefined || id === null || id === '') {
-        throw Error(`SDLC event is missing required field 'event.id'`);
+        throw new Error(`SDLC event is missing required field 'event.id'`);
     }
 }
 async function sendSdlcEvents(url, token, sdlcEvents, retries = 3) {
@@ -36012,7 +36018,7 @@ async function sendSdlcEventsInternal(url, token, sdlcEvents) {
     if (responseBody)
         core.info(responseBody);
     if (res.message.statusCode !== 202) {
-        throw Error(`HTTP request failed - ${res.message.statusCode}`);
+        throw new Error(`HTTP request failed - ${res.message.statusCode}`);
     }
 }
 function getClient(token, content) {
