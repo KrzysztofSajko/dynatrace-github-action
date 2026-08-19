@@ -35946,35 +35946,28 @@ async function buildSmartscapePayloads(url, token, event) {
         }
     }));
 }
+async function buildEventPayload(url, token, event) {
+    if (event.nodeSelectorFilter) {
+        if (event.entitySelector) {
+            core.warning(`Event '${event.title}' sets both 'entitySelector' and 'nodeSelectorFilter' - 'entitySelector' is ignored.`);
+        }
+        return (await buildSmartscapePayloads(url, token, event)) ?? [];
+    }
+    if (event.entitySelector) {
+        core.warning(`Event '${event.title}' uses 'entitySelector', which is deprecated for Dynatrace SaaS tenants on Smartscape 2 / Grail (Phase 3). Use 'nodeSelectorFilter' instead.`);
+    }
+    try {
+        return [event2payload(event)];
+    }
+    catch (error) {
+        core.setFailed(error.message);
+        return [];
+    }
+}
 async function sendEventsInternal(url, token, events) {
     core.info(`Sending ${events.length} event(s)`);
-    for (const event of events) {
-        if (event.entitySelector) {
-            core.warning(`Event '${event.title}' uses 'entitySelector', which is deprecated for Dynatrace SaaS tenants on Smartscape 2 / Grail (Phase 3). Use 'nodeSelectorFilter' instead.`);
-        }
-        let payloads;
-        if (event.nodeSelectorFilter) {
-            if (event.entitySelector) {
-                core.warning(`Event '${event.title}' sets both 'entitySelector' and 'nodeSelectorFilter' - 'entitySelector' is ignored.`);
-            }
-            const result = await buildSmartscapePayloads(url, token, event);
-            if (result === null)
-                continue;
-            payloads = result;
-        }
-        else {
-            try {
-                payloads = [event2payload(event)];
-            }
-            catch (error) {
-                core.setFailed(error.message);
-                continue;
-            }
-        }
-        for (const payload of payloads) {
-            await postEvent(url, token, payload);
-        }
-    }
+    const payloads = (await Promise.all(events.map(async (e) => buildEventPayload(url, token, e)))).flat();
+    await Promise.all(payloads.map(async (p) => postEvent(url, token, p)));
 }
 function validateSdlcEvent(event) {
     const id = event['event.id'];

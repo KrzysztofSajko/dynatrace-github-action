@@ -499,10 +499,10 @@ async function sendEventsInternal(
   core.info(`Sending ${events.length} event(s)`)
 
   const payloads = (
-    await Promise.all(events.map(e => buildEventPayload(url, token, e)))
+    await Promise.all(events.map(async e => buildEventPayload(url, token, e)))
   ).flat()
 
-  await Promise.all(payloads.map(p => postEvent(url, token, p)))
+  await Promise.all(payloads.map(async p => postEvent(url, token, p)))
 }
 
 export function validateSdlcEvent(event: SdlcEvent): void {
