@@ -217,8 +217,7 @@ to a
 and the action will:
 
 1. Query Grail for all Smartscape nodes matching the filter.
-2. Send the event once per matched node, automatically attaching
-   `dt.smartscape.<type>.id`, `dt.smartscape.<type>.name`,
+1. Send the event once per matched node, automatically attaching
    `dt.smartscape_source.id` and `dt.smartscape_source.type` properties for that
    node (in addition to any `properties` you configure).
 
@@ -288,7 +287,7 @@ real Dynatrace tenant (e.g. after changing anything in `src/dynatrace.ts`), run
 the local-only smoke test scripts. They are **never run in CI** and never touch
 GitHub Secrets — they read tenant URLs/tokens from your local environment only.
 
-Create an untracked `.env.smoke-test` file (already gitignored) in the repo
+Create an untracked `.env.smoke-test` file (already gitignored) in the repository
 root:
 
 ```bash
