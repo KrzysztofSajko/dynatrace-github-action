@@ -23,7 +23,9 @@ This repository was bootstrapped using the
   - [Tags](#tags)
   - [Usage](#usage)
     - [Inputs](#inputs)
-    - [API Token](#api-token)
+    - [API Tokens](#api-tokens)
+      - [Classic Access Tokens](#classic-access-tokens)
+      - [Platform Tokens](#platform-tokens)
     - [Metric Formats](#metric-formats)
     - [Event Types](#event-types)
     - [SDLC Events](#sdlc-events)
@@ -68,15 +70,34 @@ action.
 > 1. `url` should be the LIVE Dynatrace domain, eg:
 >    `https://{your-environment-id}.live.dynatrace.com`
 
-### API Token
+### API Tokens
 
-Your `token` must be a Dynatrace API token with the following permissions
-granted to it:
+#### Classic Access Tokens
+
+For classic tenants, your `token` must be a Dynatrace Access Token (`dt0c01.*`)
+with the following permissions granted to it:
 
 - Read Metrics (`metrics.read`)
 - Read Events (`events.read`)
 - Ingest Metrics (`metrics.ingest`)
 - Ingest Events (`events.ingest`)
+- Ingest SDLC Events (`openpipeline.events_sdlc`) — required only when using
+  `sdlc-events`
+
+> [!NOTE]
+>
+> `nodeSelectorFilter` requires a Platform Token — classic access tokens cannot
+> read Grail data.
+
+#### Platform Tokens
+
+For Platform / Grail tenants, your `token` must be a Dynatrace Platform Token
+(`dt0s16.*`) with the following permissions granted to it:
+
+- Read Metrics (`storage:metrics:read`)
+- Read Events (`storage:events:read`)
+- Ingest Metrics (`storage:metrics:write`)
+- Ingest Events (`storage:events:write`)
 - Ingest SDLC Events (`openpipeline.events_sdlc`) — required only when using
   `sdlc-events`
 - Read Grail buckets (`storage:buckets:read`) and Smartscape
