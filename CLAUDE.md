@@ -109,7 +109,7 @@ Before a pull request can be merged, all of the following must be satisfied:
 
 Follow [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`.
 
-- **PATCH** — bug fixes, no API changes.
+- **PATCH** — bugfixes, no API changes.
 - **MINOR** — new backwards-compatible inputs or features.
 - **MAJOR** — breaking changes to inputs, outputs, or behaviour.
 
@@ -117,13 +117,13 @@ Follow [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`.
 
 1. **Ensure the main branch is clean and all CI checks pass.**
 
-2. **Update version** in `package.json`:
+1. **Update version** in `package.json`:
 
    ```bash
    npm version patch   # or minor / major
    ```
 
-3. **Rebuild the distribution bundle:**
+1. **Rebuild the distribution bundle:**
 
    ```bash
    npm run all
@@ -131,27 +131,27 @@ Follow [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`.
 
    Commit the updated `dist/` directory and `package.json`/`package-lock.json`.
 
-4. **Update `README.md`:**
+1. **Update `README.md`:**
 
    - Bump the version tag in all usage examples (e.g., `@v9` → `@v10`).
    - Update the Tags section with the new `vMAJOR`, `vMAJOR.MINOR`, and
      `vMAJOR.MINOR.PATCH` entries.
 
-5. **Create and push a Git tag:**
+1. **Create and push a Git tag:**
 
    ```bash
    git tag -a v2.1.0 -m "Release v2.1.0"
    git push origin v2.1.0
    ```
 
-6. **Create a GitHub Release** on the Releases page:
+1. **Create a GitHub Release** on the Releases page:
 
    - Use the tag created above.
    - Write a changelog describing what changed (features, fixes, breaking
      changes).
    - Attach no additional assets — `dist/index.js` is already committed.
 
-7. **Update the floating major-version tag** so existing users on `@vMAJOR` get
+1. **Update the floating major-version tag** so existing users on `@vMAJOR` get
    the latest:
 
    ```bash
@@ -161,6 +161,6 @@ Follow [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`.
 
    Repeat for the minor tag if desired (`v2.1`).
 
-8. **Verify** the new release appears on the
-   [Marketplace listing](https://github.com/marketplace) and that the README
+1. **Verify** the new release appears on the
+   [Marketplace listing](https://github.com/marketplace) and that the readme
    examples reference the correct tag.
