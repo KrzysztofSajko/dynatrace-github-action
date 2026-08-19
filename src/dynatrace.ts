@@ -250,7 +250,7 @@ export async function resolveSmartscapeNodes(
   }
 
   const grailUrl = toGrailUrl(url)
-  const query = `smartscapeNodes "*" | filter ${filter}`
+  const query = `smartscapeNodes "*" | filter ${filter} | fields id, type, name`
   const http: httpm.HttpClient = getClient(token, 'application/json')
 
   const startUrl = `${grailUrl}/platform/storage/query/v1/query:execute`
@@ -426,56 +426,6 @@ async function postEvent(
   validateEventIngestResponse(responseBody)
 }
 
-function smartscapeNodeProperties(node: SmartscapeNode): Properties {
-  const type = node.type.toLowerCase()
-  const properties: Properties = {
-    [`dt.smartscape.${type}.id`]: node.id,
-    'dt.smartscape_source.id': node.id,
-    'dt.smartscape_source.type': node.type
-  }
-
-  if (node.name) properties[`dt.smartscape.${type}.name`] = node.name
-
-  return properties
-}
-
-async function sendEventToSmartscapeNodes(
-  url: string,
-  token: string,
-  event: Event
-): Promise<void> {
-  const nodes = await resolveSmartscapeNodes(
-    url,
-    token,
-    event.nodeSelectorFilter as string
-  )
-
-  if (nodes.length === 0) {
-    core.warning(
-      `No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`
-    )
-    return
-  }
-
-  let basePayload: { [key: string]: number | string | Properties }
-  try {
-    basePayload = event2payload({ ...event, entitySelector: undefined })
-  } catch (error) {
-    core.setFailed((error as Error).message)
-    return
-  }
-
-  for (const node of nodes) {
-    await postEvent(url, token, {
-      ...basePayload,
-      properties: {
-        ...smartscapeNodeProperties(node),
-        ...(event.properties ?? {})
-      }
-    })
-  }
-}
-
 async function sendEventsInternal(
   url: string,
   token: string,
@@ -490,6 +440,8 @@ async function sendEventsInternal(
       )
     }
 
+    let payloads: { [key: string]: number | string | Properties }[]
+
     if (event.nodeSelectorFilter) {
       if (event.entitySelector) {
         core.warning(
@@ -497,19 +449,47 @@ async function sendEventsInternal(
         )
       }
 
-      await sendEventToSmartscapeNodes(url, token, event)
-      continue
+      const nodes = await resolveSmartscapeNodes(
+        url,
+        token,
+        event.nodeSelectorFilter
+      )
+
+      if (nodes.length === 0) {
+        core.warning(
+          `No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`
+        )
+        continue
+      }
+
+      let basePayload: { [key: string]: number | string | Properties }
+      try {
+        basePayload = event2payload({ ...event, entitySelector: undefined })
+      } catch (error) {
+        core.setFailed((error as Error).message)
+        continue
+      }
+
+      payloads = nodes.map(node => ({
+        ...basePayload,
+        properties: {
+          ...(event.properties ?? {}),
+          'dt.smartscape_source.id': node.id,
+          'dt.smartscape_source.type': node.type
+        }
+      }))
+    } else {
+      try {
+        payloads = [event2payload(event)]
+      } catch (error) {
+        core.setFailed((error as Error).message)
+        continue
+      }
     }
 
-    let payload: { [key: string]: number | string | Properties }
-    try {
-      payload = event2payload(event)
-    } catch (error) {
-      core.setFailed((error as Error).message)
-      continue
+    for (const payload of payloads) {
+      await postEvent(url, token, payload)
     }
-
-    await postEvent(url, token, payload)
   }
 }
 

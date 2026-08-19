@@ -736,11 +736,11 @@ describe('dynatrace', () => {
       // properties plus the user-supplied properties.
       expect(mockPost).toHaveBeenCalledWith(
         eventsIngestUrl,
-        expect.stringContaining('"dt.smartscape.host.id":"HOST-1"')
+        expect.stringContaining('"dt.smartscape_source.id":"HOST-1"')
       )
       expect(mockPost).toHaveBeenCalledWith(
         eventsIngestUrl,
-        expect.stringContaining('"dt.smartscape.service.id":"SERVICE-1"')
+        expect.stringContaining('"dt.smartscape_source.id":"SERVICE-1"')
       )
       expect(mockPost).toHaveBeenCalledWith(
         eventsIngestUrl,
