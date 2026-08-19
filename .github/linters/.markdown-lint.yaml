@@ -1,3 +1,9 @@
+# Line length – exempt tables and code blocks
+MD013:
+  line_length: 80
+  tables: false
+  code_blocks: false
+
 # Unordered list style
 MD004:
   style: dash

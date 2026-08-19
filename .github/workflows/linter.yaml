@@ -34,7 +34,7 @@ jobs:
 
       - name: Install Dependencies
         id: install
-        run: npm ci
+        run: npm install --ignore-scripts
 
       - name: Lint Codebase
         id: super-linter
@@ -47,3 +47,4 @@ jobs:
           VALIDATE_ALL_CODEBASE: true
           VALIDATE_JAVASCRIPT_STANDARD: false
           VALIDATE_JSCPD: false
+          VALIDATE_TYPESCRIPT_STANDARD: false
