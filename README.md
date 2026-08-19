@@ -287,8 +287,8 @@ real Dynatrace tenant (e.g. after changing anything in `src/dynatrace.ts`), run
 the local-only smoke test scripts. They are **never run in CI** and never touch
 GitHub Secrets — they read tenant URLs/tokens from your local environment only.
 
-Create an untracked `.env.smoke-test` file (already gitignored) in the repository
-root:
+Create an untracked `.env.smoke-test` file (already gitignored) in the
+repository root:
 
 ```bash
 DT_CLASSIC_URL=https://{classic-environment-id}.live.dynatrace.com
