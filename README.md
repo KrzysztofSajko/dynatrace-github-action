@@ -215,14 +215,15 @@ npm run all
 
 This open source project is **community-supported**. It is not officially
 supported by Dynatrace. For questions, bug reports, and feature requests, please
-use [GitHub Issues](https://github.com/dynatrace-oss/dynatrace-github-action/issues).
+use
+[GitHub Issues](https://github.com/dynatrace-oss/dynatrace-github-action/issues).
 
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at
-<https://github.com/dynatrace-oss/dynatrace-github-action>.
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request
-and note that all participants are expected to follow the
+<https://github.com/dynatrace-oss/dynatrace-github-action>. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request and note
+that all participants are expected to follow the
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
