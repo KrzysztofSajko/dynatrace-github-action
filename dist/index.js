@@ -35818,7 +35818,7 @@ async function resolveSmartscapeNodes(url, token, filter) {
         throw Error(`'nodeSelectorFilter' must not be empty`);
     }
     const grailUrl = toGrailUrl(url);
-    const query = `smartscapeNodes "*" | filter ${filter}`;
+    const query = `smartscapeNodes "*" | filter ${filter} | fields id, type, name`;
     const http = getClient(token, 'application/json');
     const startUrl = `${grailUrl}/platform/storage/query/v1/query:execute`;
     const startPayload = JSON.stringify({
@@ -35923,63 +35923,51 @@ async function postEvent(url, token, payload) {
     }
     validateEventIngestResponse(responseBody);
 }
-function smartscapeNodeProperties(node) {
-    const type = node.type.toLowerCase();
-    const properties = {
-        [`dt.smartscape.${type}.id`]: node.id,
-        'dt.smartscape_source.id': node.id,
-        'dt.smartscape_source.type': node.type
-    };
-    if (node.name)
-        properties[`dt.smartscape.${type}.name`] = node.name;
-    return properties;
-}
-async function sendEventToSmartscapeNodes(url, token, event) {
-    const nodes = await resolveSmartscapeNodes(url, token, event.nodeSelectorFilter);
-    if (nodes.length === 0) {
-        core.warning(`No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`);
-        return;
-    }
-    let basePayload;
-    try {
-        basePayload = event2payload({ ...event, entitySelector: undefined });
-    }
-    catch (error) {
-        core.setFailed(error.message);
-        return;
-    }
-    for (const node of nodes) {
-        await postEvent(url, token, {
-            ...basePayload,
-            properties: {
-                ...smartscapeNodeProperties(node),
-                ...(event.properties ?? {})
-            }
-        });
-    }
-}
 async function sendEventsInternal(url, token, events) {
     core.info(`Sending ${events.length} event(s)`);
     for (const event of events) {
         if (event.entitySelector) {
             core.warning(`Event '${event.title}' uses 'entitySelector', which is deprecated for Dynatrace SaaS tenants on Smartscape 2 / Grail (Phase 3). Use 'nodeSelectorFilter' instead.`);
         }
+        let payloads;
         if (event.nodeSelectorFilter) {
             if (event.entitySelector) {
                 core.warning(`Event '${event.title}' sets both 'entitySelector' and 'nodeSelectorFilter' - 'entitySelector' is ignored.`);
             }
-            await sendEventToSmartscapeNodes(url, token, event);
-            continue;
+            const nodes = await resolveSmartscapeNodes(url, token, event.nodeSelectorFilter);
+            if (nodes.length === 0) {
+                core.warning(`No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`);
+                continue;
+            }
+            let basePayload;
+            try {
+                basePayload = event2payload({ ...event, entitySelector: undefined });
+            }
+            catch (error) {
+                core.setFailed(error.message);
+                continue;
+            }
+            payloads = nodes.map(node => ({
+                ...basePayload,
+                properties: {
+                    ...(event.properties ?? {}),
+                    'dt.smartscape_source.id': node.id,
+                    'dt.smartscape_source.type': node.type
+                }
+            }));
         }
-        let payload;
-        try {
-            payload = event2payload(event);
+        else {
+            try {
+                payloads = [event2payload(event)];
+            }
+            catch (error) {
+                core.setFailed(error.message);
+                continue;
+            }
         }
-        catch (error) {
-            core.setFailed(error.message);
-            continue;
+        for (const payload of payloads) {
+            await postEvent(url, token, payload);
         }
-        await postEvent(url, token, payload);
     }
 }
 function validateSdlcEvent(event) {
