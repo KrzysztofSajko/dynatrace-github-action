@@ -148,7 +148,9 @@ export function event2payload(event: Event): EventPayload {
 
     return payload
   } else {
-    throw new Error(`Unsupported Event type for '${event.title}' - ${event.type}`)
+    throw new Error(
+      `Unsupported Event type for '${event.title}' - ${event.type}`
+    )
   }
 }
 
@@ -430,7 +432,11 @@ async function buildSmartscapePayloads(
   token: string,
   event: Event
 ): Promise<EventPayload[] | null> {
-  const nodes = await resolveSmartscapeNodes(url, token, event.nodeSelectorFilter as string)
+  const nodes = await resolveSmartscapeNodes(
+    url,
+    token,
+    event.nodeSelectorFilter as string
+  )
 
   if (nodes.length === 0) {
     core.warning(
@@ -457,6 +463,34 @@ async function buildSmartscapePayloads(
   }))
 }
 
+async function buildEventPayload(
+  url: string,
+  token: string,
+  event: Event
+): Promise<EventPayload[]> {
+  if (event.nodeSelectorFilter) {
+    if (event.entitySelector) {
+      core.warning(
+        `Event '${event.title}' sets both 'entitySelector' and 'nodeSelectorFilter' - 'entitySelector' is ignored.`
+      )
+    }
+    return (await buildSmartscapePayloads(url, token, event)) ?? []
+  }
+
+  if (event.entitySelector) {
+    core.warning(
+      `Event '${event.title}' uses 'entitySelector', which is deprecated for Dynatrace SaaS tenants on Smartscape 2 / Grail (Phase 3). Use 'nodeSelectorFilter' instead.`
+    )
+  }
+
+  try {
+    return [event2payload(event)]
+  } catch (error) {
+    core.setFailed((error as Error).message)
+    return []
+  }
+}
+
 async function sendEventsInternal(
   url: string,
   token: string,
@@ -464,37 +498,11 @@ async function sendEventsInternal(
 ): Promise<void> {
   core.info(`Sending ${events.length} event(s)`)
 
-  for (const event of events) {
-    if (event.entitySelector) {
-      core.warning(
-        `Event '${event.title}' uses 'entitySelector', which is deprecated for Dynatrace SaaS tenants on Smartscape 2 / Grail (Phase 3). Use 'nodeSelectorFilter' instead.`
-      )
-    }
+  const payloads = (
+    await Promise.all(events.map(e => buildEventPayload(url, token, e)))
+  ).flat()
 
-    let payloads: EventPayload[]
-
-    if (event.nodeSelectorFilter) {
-      if (event.entitySelector) {
-        core.warning(
-          `Event '${event.title}' sets both 'entitySelector' and 'nodeSelectorFilter' - 'entitySelector' is ignored.`
-        )
-      }
-      const result = await buildSmartscapePayloads(url, token, event)
-      if (result === null) continue
-      payloads = result
-    } else {
-      try {
-        payloads = [event2payload(event)]
-      } catch (error) {
-        core.setFailed((error as Error).message)
-        continue
-      }
-    }
-
-    for (const payload of payloads) {
-      await postEvent(url, token, payload)
-    }
-  }
+  await Promise.all(payloads.map(p => postEvent(url, token, p)))
 }
 
 export function validateSdlcEvent(event: SdlcEvent): void {
