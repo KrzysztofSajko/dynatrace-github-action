@@ -25,6 +25,7 @@ const SUPPORTED_EVENT_TYPES: string[] = [
 
 export type Properties = { [key: string]: string }
 export type Dimensions = { [key: string]: string }
+export type EventPayload = { [key: string]: number | string | Properties }
 
 export interface SdlcEvent {
   'event.id': string | number
@@ -109,7 +110,7 @@ export function metric2line(metric: Metric): string {
     if (SUPPORTED_METRIC_FORMATS.includes(metric.format)) {
       line += ` ${metric.format},${metric.value}`
     } else {
-      throw Error(
+      throw new Error(
         `Unsupported Metric format for '${metric.metric}' - ${metric.format}`
       )
     }
@@ -124,7 +125,7 @@ export function metric2line(metric: Metric): string {
 export function event2payload(event: Event): {
   [key: string]: number | string | Properties
 } {
-  let payload: { [key: string]: number | string | Properties } = {}
+  let payload: EventPayload = {}
   if (SUPPORTED_EVENT_TYPES.includes(event.type)) {
     // start with type and title
     payload = {
@@ -149,7 +150,7 @@ export function event2payload(event: Event): {
 
     return payload
   } else {
-    throw Error(`Unsupported Event type for '${event.title}' - ${event.type}`)
+    throw new Error(`Unsupported Event type for '${event.title}' - ${event.type}`)
   }
 }
 
@@ -159,7 +160,7 @@ export function validateEventIngestResponse(body: string): void {
   try {
     parsedResponse = JSON.parse(body) as EventIngestResponse
   } catch (error) {
-    throw Error(
+    throw new Error(
       `Dynatrace event ingest returned invalid JSON: ${(error as Error).message}`
     )
   }
@@ -171,7 +172,7 @@ export function validateEventIngestResponse(body: string): void {
   )
 
   if (reportCount <= 0 || successfulIngestions.length === 0) {
-    throw Error(
+    throw new Error(
       `Dynatrace event ingest accepted the request but did not ingest any events: ${body}`
     )
   }
@@ -181,7 +182,7 @@ function parseQueryResponse(body: string): QueryResponse {
   try {
     return JSON.parse(body) as QueryResponse
   } catch (error) {
-    throw Error(
+    throw new Error(
       `Dynatrace Grail query returned invalid JSON: ${(error as Error).message}`
     )
   }
@@ -246,7 +247,7 @@ export async function resolveSmartscapeNodes(
   filter: string
 ): Promise<SmartscapeNode[]> {
   if (!filter.trim()) {
-    throw Error(`'nodeSelectorFilter' must not be empty`)
+    throw new Error(`'nodeSelectorFilter' must not be empty`)
   }
 
   const grailUrl = toGrailUrl(url)
@@ -269,7 +270,7 @@ export async function resolveSmartscapeNodes(
     `Grail query response: ${startRes.message.statusCode} body=${startBody}`
   )
   if (startRes.message.statusCode !== 200) {
-    throw Error(
+    throw new Error(
       `Dynatrace Grail query request failed - ${startRes.message.statusCode}: ${startBody}`
     )
   }
@@ -283,7 +284,7 @@ export async function resolveSmartscapeNodes(
     Date.now() < deadline
   ) {
     if (!queryResponse.requestToken) {
-      throw Error(
+      throw new Error(
         `Dynatrace Grail query did not return a request token to poll for results`
       )
     }
@@ -299,7 +300,7 @@ export async function resolveSmartscapeNodes(
       `Grail query poll response: ${pollRes.message.statusCode} body=${pollBody}`
     )
     if (pollRes.message.statusCode !== 200) {
-      throw Error(
+      throw new Error(
         `Dynatrace Grail query poll failed - ${pollRes.message.statusCode}: ${pollBody}`
       )
     }
@@ -311,13 +312,13 @@ export async function resolveSmartscapeNodes(
     queryResponse.state === 'RUNNING' ||
     queryResponse.state === 'NOT_STARTED'
   ) {
-    throw Error(
+    throw new Error(
       `Timed out waiting for Dynatrace Grail query to complete for filter '${filter}'`
     )
   }
 
   if (queryResponse.state !== 'SUCCEEDED') {
-    throw Error(
+    throw new Error(
       `Dynatrace Grail query did not succeed (state: ${queryResponse.state}) for filter '${filter}'`
     )
   }
@@ -404,7 +405,7 @@ export async function sendEvents(
 async function postEvent(
   url: string,
   token: string,
-  payload: { [key: string]: number | string | Properties }
+  payload: EventPayload
 ): Promise<void> {
   core.info(JSON.stringify(payload))
 
@@ -418,12 +419,44 @@ async function postEvent(
   core.info(responseBody)
 
   if (res.message.statusCode !== 201) {
-    throw Error(
+    throw new Error(
       `HTTP request failed - ${res.message.statusCode}: ${responseBody}`
     )
   }
 
   validateEventIngestResponse(responseBody)
+}
+
+async function buildSmartscapePayloads(
+  url: string,
+  token: string,
+  event: Event
+): Promise<EventPayload[] | null> {
+  const nodes = await resolveSmartscapeNodes(url, token, event.nodeSelectorFilter as string)
+
+  if (nodes.length === 0) {
+    core.warning(
+      `No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`
+    )
+    return null
+  }
+
+  let basePayload: EventPayload
+  try {
+    basePayload = event2payload({ ...event, entitySelector: undefined })
+  } catch (error) {
+    core.setFailed((error as Error).message)
+    return null
+  }
+
+  return nodes.map(node => ({
+    ...basePayload,
+    properties: {
+      ...event.properties,
+      'dt.smartscape_source.id': node.id,
+      'dt.smartscape_source.type': node.type
+    }
+  }))
 }
 
 async function sendEventsInternal(
@@ -440,7 +473,7 @@ async function sendEventsInternal(
       )
     }
 
-    let payloads: { [key: string]: number | string | Properties }[]
+    let payloads: EventPayload[]
 
     if (event.nodeSelectorFilter) {
       if (event.entitySelector) {
@@ -448,36 +481,9 @@ async function sendEventsInternal(
           `Event '${event.title}' sets both 'entitySelector' and 'nodeSelectorFilter' - 'entitySelector' is ignored.`
         )
       }
-
-      const nodes = await resolveSmartscapeNodes(
-        url,
-        token,
-        event.nodeSelectorFilter
-      )
-
-      if (nodes.length === 0) {
-        core.warning(
-          `No Smartscape nodes matched 'nodeSelectorFilter' for event '${event.title}' - skipping.`
-        )
-        continue
-      }
-
-      let basePayload: { [key: string]: number | string | Properties }
-      try {
-        basePayload = event2payload({ ...event, entitySelector: undefined })
-      } catch (error) {
-        core.setFailed((error as Error).message)
-        continue
-      }
-
-      payloads = nodes.map(node => ({
-        ...basePayload,
-        properties: {
-          ...(event.properties ?? {}),
-          'dt.smartscape_source.id': node.id,
-          'dt.smartscape_source.type': node.type
-        }
-      }))
+      const result = await buildSmartscapePayloads(url, token, event)
+      if (result === null) continue
+      payloads = result
     } else {
       try {
         payloads = [event2payload(event)]
@@ -496,7 +502,7 @@ async function sendEventsInternal(
 export function validateSdlcEvent(event: SdlcEvent): void {
   const id = event['event.id']
   if (id === undefined || id === null || id === '') {
-    throw Error(`SDLC event is missing required field 'event.id'`)
+    throw new Error(`SDLC event is missing required field 'event.id'`)
   }
 }
 
@@ -554,7 +560,7 @@ async function sendSdlcEventsInternal(
   if (responseBody) core.info(responseBody)
 
   if (res.message.statusCode !== 202) {
-    throw Error(`HTTP request failed - ${res.message.statusCode}`)
+    throw new Error(`HTTP request failed - ${res.message.statusCode}`)
   }
 }
 
