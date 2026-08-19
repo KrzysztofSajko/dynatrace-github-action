@@ -122,9 +122,7 @@ export function metric2line(metric: Metric): string {
   return line
 }
 
-export function event2payload(event: Event): {
-  [key: string]: number | string | Properties
-} {
+export function event2payload(event: Event): EventPayload {
   let payload: EventPayload = {}
   if (SUPPORTED_EVENT_TYPES.includes(event.type)) {
     // start with type and title
